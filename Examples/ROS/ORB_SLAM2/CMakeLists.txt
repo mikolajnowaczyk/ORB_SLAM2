@@ -91,7 +91,13 @@ rosbuild_add_executable(RGBD
 src/ros_rgbd.cc
 )
 
-target_link_libraries(RGBD
+
+# Node for RGB-D camera modified
+rosbuild_add_executable(RGBD_M
+src/ros_rgbd_modified.cc
+)
+
+target_link_libraries(RGBD_M
 ${LIBS}
 )
 
