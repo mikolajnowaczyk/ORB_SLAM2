@@ -27,6 +27,7 @@
 #include "Tracking.h"
 #include "System.h"
 
+
 #include <mutex>
 
 namespace ORB_SLAM2

@@ -55,6 +55,7 @@ ${Pangolin_LIBRARIES}
 ${PROJECT_SOURCE_DIR}/../../../Thirdparty/DBoW2/lib/libDBoW2.so
 ${PROJECT_SOURCE_DIR}/../../../Thirdparty/g2o/lib/libg2o.so
 ${PROJECT_SOURCE_DIR}/../../../lib/libORB_SLAM2.so
+-lboost_system
 )
 
 # Node for monocular camera
@@ -91,13 +92,23 @@ rosbuild_add_executable(RGBD
 src/ros_rgbd.cc
 )
 
+target_link_libraries(RGBD
+${LIBS}
+)
 
-# Node for RGB-D camera modified
-rosbuild_add_executable(RGBD_M
+# Node for RGB-D camera
+rosbuild_add_executable(RGBD_MODIFIED
 src/ros_rgbd_modified.cc
 )
 
-target_link_libraries(RGBD_M
+target_link_libraries(RGBD_MODIFIED
+${LIBS}
+)
+
+rosbuild_add_executable(pose_to_tf
+src/pose_to_tf.cc
+)
+target_link_libraries(pose_to_tf
 ${LIBS}
 )
 

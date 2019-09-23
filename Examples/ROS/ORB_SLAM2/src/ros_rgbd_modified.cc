@@ -18,7 +18,6 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include<iostream>
 #include<algorithm>
 #include<fstream>
@@ -33,8 +32,11 @@
 #include<opencv2/core/core.hpp>
 
 #include"../../../include/System.h"
+#include "geometry_msgs/PoseStamped.h"
+#include <geometry_msgs/PoseArray.h>
 
 using namespace std;
+using namespace ORB_SLAM2;
 
 class ImageGrabber
 {
@@ -48,7 +50,7 @@ public:
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "RGBD");
+    ros::init(argc, argv, "RGBD_Modified");
     ros::start();
 
     if(argc != 3)
@@ -64,15 +66,29 @@ int main(int argc, char **argv)
     ImageGrabber igb(&SLAM);
 
     ros::NodeHandle nh;
-
+    // Define all subscriers
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
     message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
+    ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseStamped>("pose_publisher", 1);
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_pol;
+
     message_filters::Synchronizer<sync_pol> sync(sync_pol(10), rgb_sub,depth_sub);
     sync.registerCallback(boost::bind(&ImageGrabber::GrabRGBD,&igb,_1,_2));
 
-    ros::spin();
+    geometry_msgs::PoseStamped pose_stamped;
 
+    //std_msgs::String msg;
+    //std::stringstream ss;
+    //ros::Rate loop_rate(3);
+    //while (ros::ok()) //main loop
+    //{
+
+        //ros::spinOnce();
+       // loop_rate.sleep();
+    //}//end while
+
+    ros::spin();
+    cout<<"Ros_rgbd_modified - killed!"<<endl;
     // Stop all threads
     SLAM.Shutdown();
 

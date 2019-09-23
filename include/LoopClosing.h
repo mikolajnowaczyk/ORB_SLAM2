@@ -26,6 +26,9 @@
 #include "Map.h"
 #include "ORBVocabulary.h"
 #include "Tracking.h"
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "KeyFrameDatabase.h"
 
