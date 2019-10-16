@@ -28,12 +28,15 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <tf/transform_broadcaster.h>
 
 #include<opencv2/core/core.hpp>
 
 #include"../../../include/System.h"
 #include "geometry_msgs/PoseStamped.h"
 #include <geometry_msgs/PoseArray.h>
+#include <std_msgs/Int32MultiArray.h>
+#include <sensor_msgs/PointCloud2.h>
 
 using namespace std;
 using namespace ORB_SLAM2;
@@ -47,6 +50,55 @@ public:
 
     ORB_SLAM2::System* mpSLAM;
 };
+
+tf::Transform TransformFromMat (cv::Mat position_mat) {
+  cv::Mat rotation(3,3,CV_32F);
+  cv::Mat translation(3,1,CV_32F);
+
+  rotation = position_mat.rowRange(0,3).colRange(0,3);
+  translation = position_mat.rowRange(0,3).col(3);
+
+  tf::Matrix3x3 tf_camera_rotation (rotation.at<float> (0,0), rotation.at<float> (0,1), rotation.at<float> (0,2),
+                                    rotation.at<float> (1,0), rotation.at<float> (1,1), rotation.at<float> (1,2),
+                                    rotation.at<float> (2,0), rotation.at<float> (2,1), rotation.at<float> (2,2)
+                                   );
+
+  tf::Vector3 tf_camera_translation (translation.at<float> (0), translation.at<float> (1), translation.at<float> (2));
+
+  //Coordinate transformation matrix from orb coordinate system to ros coordinate system
+  const tf::Matrix3x3 tf_orb_to_ros (0, 0, 1,
+                                    -1, 0, 0,
+                                     0,-1, 0);
+
+  //Transform from orb coordinate system to ros coordinate system on camera coordinates
+  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
+  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
+
+  //Inverse matrix
+  tf_camera_rotation = tf_camera_rotation.transpose();
+  tf_camera_translation = -(tf_camera_rotation*tf_camera_translation);
+
+  //Transform from orb coordinate system to ros coordinate system on map coordinates
+  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
+  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
+
+  return tf::Transform (tf_camera_rotation, tf_camera_translation);
+}
+
+/*void PublishPositionAsTransform (cv::Mat position, std::string map_frame_id_param, std::string camera_frame_id_param, ros::Time current_frame_time;) {
+  tf::Transform transform = TransformFromMat (position);
+  static tf::TransformBroadcaster tf_broadcaster;
+  tf_broadcaster.sendTransform(tf::StampedTransform(transform, current_frame_time, map_frame_id_param, camera_frame_id_param));
+}*/
+
+void PublishPositionAsPoseStamped (cv::Mat position, ros::Publisher pose_publisher,ros::Time current_frame_time, std::string map_frame_id_param) {
+  tf::Transform grasp_tf = TransformFromMat(position);
+  tf::Stamped<tf::Pose> grasp_tf_pose(grasp_tf, current_frame_time, map_frame_id_param);
+  geometry_msgs::PoseStamped pose_msg;
+  tf::poseStampedTFToMsg (grasp_tf_pose, pose_msg);
+  pose_publisher.publish(pose_msg);
+}
+
 
 int main(int argc, char **argv)
 {
@@ -66,29 +118,49 @@ int main(int argc, char **argv)
     ImageGrabber igb(&SLAM);
 
     ros::NodeHandle nh;
+    std::string name_of_node = ros::this_node::getName();
+
+    std::string map_frame_id_param;
+    std::string camera_frame_id_param;
+    ros::Time current_frame_time;
+
+    nh.param<std::string>(name_of_node + "/pointcloud_frame_id", map_frame_id_param, "map");
+    nh.param<std::string>(name_of_node + "/camera_frame_id", camera_frame_id_param, "camera_link");
     // Define all subscriers
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
     message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
-    ros::Publisher pose_pub = nh.advertise<geometry_msgs::PoseStamped>("pose_publisher", 1);
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_pol;
 
     message_filters::Synchronizer<sync_pol> sync(sync_pol(10), rgb_sub,depth_sub);
     sync.registerCallback(boost::bind(&ImageGrabber::GrabRGBD,&igb,_1,_2));
 
-    geometry_msgs::PoseStamped pose_stamped;
+    ros::Publisher map_points_publisher;
+    ros::Publisher pose_publisher;
+    ros::Publisher pose_number_publisher;
+    ros::Publisher KF_graph_publisher;
+    ros::Publisher covisibility_graph_publisher;
+
+    pose_publisher = nh.advertise<geometry_msgs::PoseStamped> (name_of_node + "/pose", 1);
+
+    //geometry_msgs::PoseStamped pose_stamped;
+
 
     //std_msgs::String msg;
     //std::stringstream ss;
-    //ros::Rate loop_rate(3);
-    //while (ros::ok()) //main loop
-    //{
-
-        //ros::spinOnce();
-       // loop_rate.sleep();
-    //}//end while
+    ros::Rate loop_rate(30);
+    while (ros::ok()) //main loop
+    {
+        cv::Mat position = SLAM.GetCurrentPosition();
+        if (!position.empty())
+        {
+            //PublishPositionAsTransform (position);
+            PublishPositionAsPoseStamped (position, pose_publisher, current_frame_time, map_frame_id_param);
+        }
+        ros::spinOnce();
+        loop_rate.sleep();
+    }//end while
 
     ros::spin();
-    cout<<"Ros_rgbd_modified - killed!"<<endl;
     // Stop all threads
     SLAM.Shutdown();
 

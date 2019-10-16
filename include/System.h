@@ -125,6 +125,11 @@ public:
     std::vector<MapPoint*> GetTrackedMapPoints();
     std::vector<cv::KeyPoint> GetTrackedKeyPointsUn();
 
+    // Return Curret Position as cv::Mat
+    cv::Mat GetCurrentPosition ();
+    
+    // Return Pointer to Map
+    Map* GetMap();
 private:
 
     // Input sensor
@@ -177,6 +182,9 @@ private:
     std::vector<MapPoint*> mTrackedMapPoints;
     std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
     std::mutex mMutexState;
+
+    // Current position
+    cv::Mat current_position;
 };
 
 }// namespace ORB_SLAM
