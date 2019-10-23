@@ -99,6 +99,28 @@ void PublishPositionAsPoseStamped (cv::Mat position, ros::Publisher pose_publish
   pose_publisher.publish(pose_msg);
 }
 
+void PublishGraphAsPoseStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_graph_publisher,ros::Time current_frame_time, std::string map_frame_id_param) {
+  geometry_msgs::PoseArray pose_array_msg;
+  geometry_msgs::PoseStamped pose_stamped_msg;
+  geometry_msgs::Pose pose_msg;
+  cv::Mat position;
+  tf::Transform grasp_tf;
+  for(unsigned int i = 0; i < KFGraph.size(); i++)
+  {
+      position = KFGraph[i]->GetPose();
+      grasp_tf = TransformFromMat(position);
+      tf::Stamped<tf::Pose> grasp_tf_pose(grasp_tf, current_frame_time, map_frame_id_param);
+      tf::poseStampedTFToMsg (grasp_tf_pose, pose_stamped_msg);
+      pose_msg = pose_stamped_msg.pose;
+      pose_array_msg.poses.push_back(pose_msg);
+      //KFGraph.push_back(pose_msg);
+      //kf_graph_publisher.publish(pose_msg);
+  }
+  pose_array_msg.header.frame_id = "map";
+  kf_graph_publisher.publish(pose_array_msg);
+  cout<<KFGraph.size()<<" KeyFrames was sent!"<<endl;
+}
+
 
 int main(int argc, char **argv)
 {
@@ -120,7 +142,7 @@ int main(int argc, char **argv)
     ros::NodeHandle nh;
     std::string name_of_node = ros::this_node::getName();
 
-    std::string map_frame_id_param;
+    std::string map_frame_id_param = "map";
     std::string camera_frame_id_param;
     ros::Time current_frame_time;
 
@@ -137,24 +159,26 @@ int main(int argc, char **argv)
     ros::Publisher map_points_publisher;
     ros::Publisher pose_publisher;
     ros::Publisher pose_number_publisher;
-    ros::Publisher KF_graph_publisher;
+    ros::Publisher kf_graph_publisher;
     ros::Publisher covisibility_graph_publisher;
 
     pose_publisher = nh.advertise<geometry_msgs::PoseStamped> (name_of_node + "/pose", 1);
+    kf_graph_publisher = nh.advertise<geometry_msgs::PoseArray> (name_of_node + "/kf_graph", 100);
 
-    //geometry_msgs::PoseStamped pose_stamped;
-
-
-    //std_msgs::String msg;
-    //std::stringstream ss;
     ros::Rate loop_rate(30);
     while (ros::ok()) //main loop
     {
         cv::Mat position = SLAM.GetCurrentPosition();
+        vector<KeyFrame*> KFGraph = SLAM.GetMap()->GetAllKeyFrames();
         if (!position.empty())
         {
             //PublishPositionAsTransform (position);
-            PublishPositionAsPoseStamped (position, pose_publisher, current_frame_time, map_frame_id_param);
+            PublishPositionAsPoseStamped(position, pose_publisher, current_frame_time, map_frame_id_param);
+        }
+        if(KFGraph.size()!=0)
+        {
+            PublishGraphAsPoseStamped(KFGraph,kf_graph_publisher,current_frame_time,map_frame_id_param);
+            cout<<"hello from while :)"<<endl;
         }
         ros::spinOnce();
         loop_rate.sleep();
@@ -200,4 +224,4 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
 }
 
-
+//map -> std::vector<MapPoint*> GetAllMapPoints();

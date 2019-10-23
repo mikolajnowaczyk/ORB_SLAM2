@@ -494,9 +494,15 @@ vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
     return mTrackedKeyPointsUn;
 }
 
-
 cv::Mat System::GetCurrentPosition () {
   return current_position;
 }
+
+// Return Pointer to Map
+Map* System::GetMap()
+{
+    return mpMap;
+}
+
 
 } //namespace ORB_SLAM

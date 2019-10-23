@@ -130,6 +130,7 @@ public:
     
     // Return Pointer to Map
     Map* GetMap();
+
 private:
 
     // Input sensor
