@@ -51,7 +51,8 @@ public:
     ORB_SLAM2::System* mpSLAM;
 };
 
-tf::Transform TransformFromMat (cv::Mat position_mat) {
+tf::Transform TransformFromMat (cv::Mat position_mat)
+{
   cv::Mat rotation(3,3,CV_32F);
   cv::Mat translation(3,1,CV_32F);
 
@@ -85,21 +86,24 @@ tf::Transform TransformFromMat (cv::Mat position_mat) {
   return tf::Transform (tf_camera_rotation, tf_camera_translation);
 }
 
-/*void PublishPositionAsTransform (cv::Mat position, std::string map_frame_id_param, std::string camera_frame_id_param, ros::Time current_frame_time;) {
+/*void PublishPositionAsTransform (cv::Mat position, std::string map_frame_id_param, std::string camera_frame_id_param, ros::Time current_frame_time;)
+{
   tf::Transform transform = TransformFromMat (position);
   static tf::TransformBroadcaster tf_broadcaster;
   tf_broadcaster.sendTransform(tf::StampedTransform(transform, current_frame_time, map_frame_id_param, camera_frame_id_param));
 }*/
 
-void PublishPositionAsPoseStamped (cv::Mat position, ros::Publisher pose_publisher,ros::Time current_frame_time, std::string map_frame_id_param) {
+void PublishPositionAsPoseStamped (cv::Mat position, ros::Publisher pose_publisher,ros::Time current_frame_time, std::string map_frame_id_param)
+{
   tf::Transform grasp_tf = TransformFromMat(position);
-  tf::Stamped<tf::Pose> grasp_tf_pose(grasp_tf, current_frame_time, map_frame_id_param);
+  tf::Stamped<tf::Pose> grasp_tf_pose(grasp_tf, current_frame_time, map_frame_id_param);//, current_frame_time, map_frame_id_param);
   geometry_msgs::PoseStamped pose_msg;
   tf::poseStampedTFToMsg (grasp_tf_pose, pose_msg);
   pose_publisher.publish(pose_msg);
 }
 
-void PublishGraphAsPoseStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_graph_publisher,ros::Time current_frame_time, std::string map_frame_id_param) {
+void PublishGraphAsPoseStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_graph_publisher, ros::Time current_frame_time, std::string map_frame_id_param)
+{
   geometry_msgs::PoseArray pose_array_msg;
   geometry_msgs::PoseStamped pose_stamped_msg;
   geometry_msgs::Pose pose_msg;
@@ -118,9 +122,60 @@ void PublishGraphAsPoseStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_grap
   }
   pose_array_msg.header.frame_id = "map";
   kf_graph_publisher.publish(pose_array_msg);
-  cout<<KFGraph.size()<<" KeyFrames was sent!"<<endl;
+  //cout<<KFGraph.size()<<" KeyFrames was sent!"<<endl;
 }
 
+sensor_msgs::PointCloud2 MapPointsToPointCloud (std::vector<ORB_SLAM2::MapPoint*> map_points, std::string map_frame_id_param, int min_observations_per_point)
+{
+  sensor_msgs::PointCloud2 cloud;
+
+  const int num_channels = 3; // x y z
+
+  //cloud.header.stamp = current_frame_time_;
+  cloud.header.frame_id = map_frame_id_param;
+  cloud.height = 1;
+  cloud.width = map_points.size();
+  cloud.is_bigendian = false;
+  cloud.is_dense = true;
+  cloud.point_step = num_channels * sizeof(float);
+  cloud.row_step = cloud.point_step * cloud.width;
+  cloud.fields.resize(num_channels);
+
+  std::string channel_id[] = { "x", "y", "z"};
+  for (int i = 0; i<num_channels; i++)
+  {
+        cloud.fields[i].name = channel_id[i];
+        cloud.fields[i].offset = i * sizeof(float);
+        cloud.fields[i].count = 1;
+        cloud.fields[i].datatype = sensor_msgs::PointField::FLOAT32;
+  }
+
+  cloud.data.resize(cloud.row_step * cloud.height);
+
+        unsigned char *cloud_data_ptr = &(cloud.data[0]);
+
+  float data_array[num_channels];
+  for (unsigned int i=0; i<cloud.width; i++)
+  {
+    if (map_points.at(i)->nObs >= min_observations_per_point)
+    {
+      data_array[0] = map_points.at(i)->GetWorldPos().at<float> (2); //x. Do the transformation by just reading at the position of z instead of x
+      data_array[1] = -1.0* map_points.at(i)->GetWorldPos().at<float> (0); //y. Do the transformation by just reading at the position of x instead of y
+      data_array[2] = -1.0* map_points.at(i)->GetWorldPos().at<float> (1); //z. Do the transformation by just reading at the position of y instead of z
+      //TODO dont hack the transformation but have a central conversion function for MapPointsToPointCloud and TransformFromMat
+
+      memcpy(cloud_data_ptr+(i*cloud.point_step), data_array, num_channels*sizeof(float));
+    }
+  }
+
+  return cloud;
+}
+
+void PublishMapPoints(std::vector<ORB_SLAM2::MapPoint*> map_points, ros::Publisher map_points_publisher, std::string map_frame_id_param, int min_observations_per_point)
+{
+  sensor_msgs::PointCloud2 cloud = MapPointsToPointCloud(map_points, map_frame_id_param, min_observations_per_point);
+  map_points_publisher.publish(cloud);
+}
 
 int main(int argc, char **argv)
 {
@@ -145,9 +200,11 @@ int main(int argc, char **argv)
     std::string map_frame_id_param = "map";
     std::string camera_frame_id_param;
     ros::Time current_frame_time;
+    int min_observations_per_point = 2;
 
     nh.param<std::string>(name_of_node + "/pointcloud_frame_id", map_frame_id_param, "map");
     nh.param<std::string>(name_of_node + "/camera_frame_id", camera_frame_id_param, "camera_link");
+
     // Define all subscriers
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
     message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
@@ -163,22 +220,30 @@ int main(int argc, char **argv)
     ros::Publisher covisibility_graph_publisher;
 
     pose_publisher = nh.advertise<geometry_msgs::PoseStamped> (name_of_node + "/pose", 1);
-    kf_graph_publisher = nh.advertise<geometry_msgs::PoseArray> (name_of_node + "/kf_graph", 100);
-
-    ros::Rate loop_rate(30);
+    kf_graph_publisher = nh.advertise<geometry_msgs::PoseArray> (name_of_node + "/kf_graph", 1);
+    map_points_publisher = nh.advertise<sensor_msgs::PointCloud2> (name_of_node + "/point_cloud", 1);
+    ros::Rate loop_rate(45);
     while (ros::ok()) //main loop
     {
         cv::Mat position = SLAM.GetCurrentPosition();
         vector<KeyFrame*> KFGraph = SLAM.GetMap()->GetAllKeyFrames();
-        if (!position.empty())
+        vector<MapPoint*> MapPoints = SLAM.GetMap()->GetAllMapPoints();
+        //POSE PUBLISHING
+        if(!position.empty())
         {
             //PublishPositionAsTransform (position);
             PublishPositionAsPoseStamped(position, pose_publisher, current_frame_time, map_frame_id_param);
         }
-        if(KFGraph.size()!=0)
+        //GRAPH PUBLISHING
+        if(!KFGraph.empty())
         {
             PublishGraphAsPoseStamped(KFGraph,kf_graph_publisher,current_frame_time,map_frame_id_param);
-            cout<<"hello from while :)"<<endl;
+            //cout<<"hello from while :)"<<endl;
+        }
+        //POINTCLOUD PUBLISHING
+        if(!MapPoints.empty())
+        {
+            PublishMapPoints(MapPoints, map_points_publisher,map_frame_id_param, min_observations_per_point);
         }
         ros::spinOnce();
         loop_rate.sleep();
