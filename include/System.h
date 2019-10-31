@@ -131,6 +131,9 @@ public:
     // Return Pointer to Map
     Map* GetMap();
 
+    // Return Pointer to Tracking
+    Tracking* GetTracking();	
+
 private:
 
     // Input sensor

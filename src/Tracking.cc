@@ -1587,6 +1587,9 @@ void Tracking::InformOnlyTracking(const bool &flag)
     mbOnlyTracking = flag;
 }
 
-
+KeyFrame* Tracking::GetReferenceKF()
+{
+    return mpReferenceKF;
+}
 
 } //namespace ORB_SLAM

@@ -36,6 +36,7 @@
 #include "geometry_msgs/PoseStamped.h"
 #include <geometry_msgs/PoseArray.h>
 #include <std_msgs/Int32MultiArray.h>
+#include <std_msgs/Int32.h>
 #include <sensor_msgs/PointCloud2.h>
 
 using namespace std;
@@ -50,6 +51,21 @@ public:
 
     ORB_SLAM2::System* mpSLAM;
 };
+
+bool matIsEqual(const cv::Mat mat1, const cv::Mat mat2){
+   // treat two empty mat as identical as well
+   if (mat1.empty() && mat2.empty()) {
+       return true;
+   }
+   // if dimensionality of two mat is not identical, these two mat is not identical
+   if (mat1.cols != mat2.cols || mat1.rows != mat2.rows || mat1.dims != mat2.dims) {
+       return false;
+   }
+   cv::Mat diff;
+   cv::compare(mat1, mat2, diff, cv::CMP_NE);
+   int nz = cv::countNonZero(diff);
+   return nz==0;
+}
 
 tf::Transform TransformFromMat (cv::Mat position_mat)
 {
@@ -177,6 +193,36 @@ void PublishMapPoints(std::vector<ORB_SLAM2::MapPoint*> map_points, ros::Publish
   map_points_publisher.publish(cloud);
 }
 
+void PublishCovisibility(vector<KeyFrame*> KFGraph, ros::Publisher covisibility_publisher)
+{
+  std_msgs::Int32MultiArray covisibility_msg;
+  for(unsigned int i = 0; i < KFGraph.size(); i++)
+  {
+     for(unsigned int j = i+1; j < KFGraph.size(); j++)
+     {
+         covisibility_msg.data.push_back(i);
+         covisibility_msg.data.push_back(j);
+         covisibility_msg.data.push_back(KFGraph[i]->GetWeight(KFGraph[j]));
+     }
+  }
+  covisibility_publisher.publish(covisibility_msg);
+}
+
+void PublishPoseNumber(vector<KeyFrame*> KFGraph, KeyFrame* ReferenceKF, ros::Publisher pose_number_publisher)
+{
+  std_msgs::Int32 number_msg;
+  //int number;
+  for(unsigned int i = 0; i < KFGraph.size(); i++)
+  {
+    if(matIsEqual(KFGraph[i]->GetPose(),ReferenceKF->GetPose()))
+    {
+        number_msg.data = i;
+        break;
+    }
+  }
+  pose_number_publisher.publish(number_msg);
+}
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "RGBD_Modified");
@@ -217,33 +263,45 @@ int main(int argc, char **argv)
     ros::Publisher pose_publisher;
     ros::Publisher pose_number_publisher;
     ros::Publisher kf_graph_publisher;
-    ros::Publisher covisibility_graph_publisher;
+    ros::Publisher covisibility_publisher;
 
     pose_publisher = nh.advertise<geometry_msgs::PoseStamped> (name_of_node + "/pose", 1);
     kf_graph_publisher = nh.advertise<geometry_msgs::PoseArray> (name_of_node + "/kf_graph", 1);
     map_points_publisher = nh.advertise<sensor_msgs::PointCloud2> (name_of_node + "/point_cloud", 1);
+    covisibility_publisher = nh.advertise<std_msgs::Int32MultiArray> (name_of_node + "/covisibility", 1);
+    pose_number_publisher = nh.advertise<std_msgs::Int32> (name_of_node + "/pose_number", 1);
     ros::Rate loop_rate(45);
     while (ros::ok()) //main loop
     {
         cv::Mat position = SLAM.GetCurrentPosition();
         vector<KeyFrame*> KFGraph = SLAM.GetMap()->GetAllKeyFrames();
         vector<MapPoint*> MapPoints = SLAM.GetMap()->GetAllMapPoints();
-        //POSE PUBLISHING
+        //POSE PUBLISH
         if(!position.empty())
         {
             //PublishPositionAsTransform (position);
             PublishPositionAsPoseStamped(position, pose_publisher, current_frame_time, map_frame_id_param);
         }
-        //GRAPH PUBLISHING
+        //GRAPH PUBLISH
         if(!KFGraph.empty())
         {
             PublishGraphAsPoseStamped(KFGraph,kf_graph_publisher,current_frame_time,map_frame_id_param);
             //cout<<"hello from while :)"<<endl;
         }
-        //POINTCLOUD PUBLISHING
+        //POINTCLOUD PUBLISH
         if(!MapPoints.empty())
         {
             PublishMapPoints(MapPoints, map_points_publisher,map_frame_id_param, min_observations_per_point);
+        }
+        //COVISIBILITY PUBLISH
+        if(!KFGraph.empty())
+        {
+            PublishCovisibility(KFGraph, covisibility_publisher);
+        }
+        //POSE NUMBER PUBLISH
+        if(!KFGraph.empty())
+        {
+            PublishPoseNumber(KFGraph, SLAM.GetTracking()->GetReferenceKF(), covisibility_publisher);
         }
         ros::spinOnce();
         loop_rate.sleep();

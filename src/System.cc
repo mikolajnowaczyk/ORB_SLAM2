@@ -504,5 +504,10 @@ Map* System::GetMap()
     return mpMap;
 }
 
+// Return Pointer to Tracking
+Tracking* System::GetTracking()
+{
+    return mpTracker;
+}
 
 } //namespace ORB_SLAM
