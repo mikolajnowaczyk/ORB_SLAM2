@@ -205,6 +205,7 @@ void PublishCovisibility(vector<KeyFrame*> KFGraph, ros::Publisher covisibility_
          covisibility_msg.data.push_back(KFGraph[i]->GetWeight(KFGraph[j]));
      }
   }
+  cout<<"PublishCovisibility: VectorSize() = "<<covisibility_msg.data.size()<<endl;
   covisibility_publisher.publish(covisibility_msg);
 }
 
@@ -220,6 +221,7 @@ void PublishPoseNumber(vector<KeyFrame*> KFGraph, KeyFrame* ReferenceKF, ros::Pu
         break;
     }
   }
+  cout<<"PublishPoseNumber: "<<number_msg.data<<endl;
   pose_number_publisher.publish(number_msg);
 }
 
