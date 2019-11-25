@@ -38,6 +38,8 @@
 #include <std_msgs/Int32MultiArray.h>
 #include <std_msgs/Int32.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <visualization_msgs/Marker.h>
+#include <geometry_msgs/Point.h>
 
 using namespace std;
 using namespace ORB_SLAM2;
@@ -67,7 +69,7 @@ bool matIsEqual(const cv::Mat mat1, const cv::Mat mat2){
    return nz==0;
 }
 
-tf::Transform TransformFromMat (cv::Mat position_mat)
+tf::Transform TransformFromMat(cv::Mat position_mat)
 {
   cv::Mat rotation(3,3,CV_32F);
   cv::Mat translation(3,1,CV_32F);
@@ -102,12 +104,12 @@ tf::Transform TransformFromMat (cv::Mat position_mat)
   return tf::Transform (tf_camera_rotation, tf_camera_translation);
 }
 
-/*void PublishPositionAsTransform (cv::Mat position, std::string map_frame_id_param, std::string camera_frame_id_param, ros::Time current_frame_time;)
+void PublishPositionAsTransform(cv::Mat position, std::string map_frame_id_param, std::string camera_frame_id_param, ros::Time current_frame_time)
 {
   tf::Transform transform = TransformFromMat (position);
   static tf::TransformBroadcaster tf_broadcaster;
   tf_broadcaster.sendTransform(tf::StampedTransform(transform, current_frame_time, map_frame_id_param, camera_frame_id_param));
-}*/
+}
 
 void PublishPositionAsPoseStamped (cv::Mat position, ros::Publisher pose_publisher,ros::Time current_frame_time, std::string map_frame_id_param)
 {
@@ -193,7 +195,8 @@ void PublishMapPoints(std::vector<ORB_SLAM2::MapPoint*> map_points, ros::Publish
   map_points_publisher.publish(cloud);
 }
 
-void PublishCovisibility(vector<KeyFrame*> KFGraph, ros::Publisher covisibility_publisher)
+//[todo]
+std_msgs::Int32MultiArray PublishCovisibility(vector<KeyFrame*> KFGraph, ros::Publisher covisibility_publisher)
 {
   std_msgs::Int32MultiArray covisibility_msg;
   for(unsigned int i = 0; i < KFGraph.size(); i++)
@@ -205,8 +208,9 @@ void PublishCovisibility(vector<KeyFrame*> KFGraph, ros::Publisher covisibility_
          covisibility_msg.data.push_back(KFGraph[i]->GetWeight(KFGraph[j]));
      }
   }
-  cout<<"PublishCovisibility: VectorSize() = "<<covisibility_msg.data.size()<<endl;
+  cout<<"PublishCovisibility: VectorSize() = "<< covisibility_msg.data.size()<<endl;
   covisibility_publisher.publish(covisibility_msg);
+  return covisibility_msg;
 }
 
 void PublishPoseNumber(vector<KeyFrame*> KFGraph, KeyFrame* ReferenceKF, ros::Publisher pose_number_publisher)
@@ -223,6 +227,72 @@ void PublishPoseNumber(vector<KeyFrame*> KFGraph, KeyFrame* ReferenceKF, ros::Pu
   }
   cout<<"PublishPoseNumber: "<<number_msg.data<<endl;
   pose_number_publisher.publish(number_msg);
+}
+
+void PublishGraphVisualization(vector<KeyFrame*> KFGraph, std_msgs::Int32MultiArray covisibility_msg, ros::Publisher visualization_publisher)
+{
+    visualization_msgs::Marker marker;
+
+    marker.header.frame_id = "base_link";
+    marker.header.stamp = ros::Time();
+    //marker.ns = "my_namespace";
+    marker.id = 0;
+    marker.type = visualization_msgs::Marker::LINE_LIST;
+    marker.action = visualization_msgs::Marker::ADD;
+
+    marker.pose.position.x = 0;
+    marker.pose.position.y = 0;
+    marker.pose.position.z = 0;
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = 0.0;
+    marker.pose.orientation.w = 1.0;
+
+    marker.scale.x = 0.0002;
+    marker.scale.y = 0.0002;
+    marker.scale.z = 0.0002;
+    marker.color.a = 1.0; // Don't forget to set the alpha!
+    marker.color.r = 0.0;
+    marker.color.g = 1.0;
+    marker.color.b = 0.0;
+    //only if using a MESH_RESOURCE marker type:
+    //marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae";
+
+    geometry_msgs::PoseStamped pose_stamped_msg;
+    cv::Mat position;
+    tf::Transform grasp_tf;
+    ros::Time current_frame_time;
+    std::string map_frame_id_param = "map";
+    //points from graph
+    for(unsigned int i = 0; i < (covisibility_msg.data.size()/3); i++)
+    {
+        if(covisibility_msg.data[3*i+2] >= 10)
+        {
+            position = KFGraph[covisibility_msg.data[3*i+0]]->GetPose();
+            grasp_tf = TransformFromMat(position);
+            tf::Stamped<tf::Pose> grasp_tf_pose(grasp_tf, current_frame_time, map_frame_id_param);
+            tf::poseStampedTFToMsg (grasp_tf_pose, pose_stamped_msg);
+
+            geometry_msgs::Point p;
+            p.x = pose_stamped_msg.pose.position.x;
+            p.y = pose_stamped_msg.pose.position.y;
+            p.z = pose_stamped_msg.pose.position.z;
+
+            marker.points.push_back(p);
+
+            position = KFGraph[covisibility_msg.data[3*i+1]]->GetPose();
+            grasp_tf = TransformFromMat(position);
+            tf::Stamped<tf::Pose> grasp_tf_pose2(grasp_tf, current_frame_time, map_frame_id_param);
+            tf::poseStampedTFToMsg (grasp_tf_pose2, pose_stamped_msg);
+
+            p.x = pose_stamped_msg.pose.position.x;
+            p.y = pose_stamped_msg.pose.position.y;
+            p.z = pose_stamped_msg.pose.position.z;
+
+            marker.points.push_back(p);
+        }
+    }
+    visualization_publisher.publish( marker );
 }
 
 int main(int argc, char **argv)
@@ -246,8 +316,7 @@ int main(int argc, char **argv)
     std::string name_of_node = ros::this_node::getName();
 
     std::string map_frame_id_param = "map";
-    std::string camera_frame_id_param;
-    ros::Time current_frame_time;
+    std::string camera_frame_id_param = "camera_link";
     int min_observations_per_point = 2;
 
     nh.param<std::string>(name_of_node + "/pointcloud_frame_id", map_frame_id_param, "map");
@@ -266,18 +335,24 @@ int main(int argc, char **argv)
     ros::Publisher pose_number_publisher;
     ros::Publisher kf_graph_publisher;
     ros::Publisher covisibility_publisher;
+    ros::Publisher visualization_publisher;
 
     pose_publisher = nh.advertise<geometry_msgs::PoseStamped> (name_of_node + "/pose", 1);
     kf_graph_publisher = nh.advertise<geometry_msgs::PoseArray> (name_of_node + "/kf_graph", 1);
     map_points_publisher = nh.advertise<sensor_msgs::PointCloud2> (name_of_node + "/point_cloud", 1);
     covisibility_publisher = nh.advertise<std_msgs::Int32MultiArray> (name_of_node + "/covisibility", 1);
     pose_number_publisher = nh.advertise<std_msgs::Int32> (name_of_node + "/pose_number", 1);
-    ros::Rate loop_rate(45);
+    visualization_publisher = nh.advertise<visualization_msgs::Marker> (name_of_node + "/visualization", 1);
+    ros::Time current_frame_time;
+
+    ros::Rate loop_rate(30);
+    std_msgs::Int32MultiArray covisibility_msg;
     while (ros::ok()) //main loop
     {
         cv::Mat position = SLAM.GetCurrentPosition();
         vector<KeyFrame*> KFGraph = SLAM.GetMap()->GetAllKeyFrames();
         vector<MapPoint*> MapPoints = SLAM.GetMap()->GetAllMapPoints();
+        current_frame_time = ros::Time::now();
         //POSE PUBLISH
         if(!position.empty())
         {
@@ -298,13 +373,26 @@ int main(int argc, char **argv)
         //COVISIBILITY PUBLISH
         if(!KFGraph.empty())
         {
-            PublishCovisibility(KFGraph, covisibility_publisher);
+            covisibility_msg = PublishCovisibility(KFGraph, covisibility_publisher);
         }
         //POSE NUMBER PUBLISH
         if(!KFGraph.empty())
         {
             PublishPoseNumber(KFGraph, SLAM.GetTracking()->GetReferenceKF(), covisibility_publisher);
         }
+
+        //Visualization publish
+        if(!KFGraph.empty() and !covisibility_msg.data.empty())
+        {
+            PublishGraphVisualization(KFGraph, covisibility_msg, visualization_publisher);
+        }
+
+        //TF publishing
+        if(!position.empty())
+        {
+            PublishPositionAsTransform(position,map_frame_id_param,camera_frame_id_param,current_frame_time);
+        }
+
         ros::spinOnce();
         loop_rate.sleep();
     }//end while
