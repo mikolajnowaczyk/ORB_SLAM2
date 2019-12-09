@@ -113,7 +113,7 @@ public:
     }
 
     static bool lId(KeyFrame* pKF1, KeyFrame* pKF2){
-        return pKF1->mnId<pKF2->mnId;
+        return pKF1->mnId < pKF2->mnId;
     }
 
 

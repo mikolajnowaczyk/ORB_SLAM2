@@ -44,6 +44,11 @@
 using namespace std;
 using namespace ORB_SLAM2;
 
+bool compareKFs(KeyFrame* KF1, KeyFrame* KF2)
+{
+    return (KF1->mnId < KF2->mnId);
+}
+
 class ImageGrabber
 {
 public:
@@ -225,7 +230,14 @@ void PublishPoseNumber(vector<KeyFrame*> KFGraph, KeyFrame* ReferenceKF, ros::Pu
         break;
     }
   }
-  cout<<"PublishPoseNumber: "<<number_msg.data<<endl;
+  cout<<"PublishPoseNumber function debug:"<<endl;
+  for(unsigned int i = 0; i < KFGraph.size(); i++)
+  {
+    cout<<i<<" "<<KFGraph[i]->mnId <<" and pointer: "<<&KFGraph[i]<<endl;
+  }
+  cout<<endl;
+
+  cout<<"Current number: "<<number_msg.data<<" of total "<<KFGraph.size()<<endl;
   pose_number_publisher.publish(number_msg);
 }
 
@@ -351,6 +363,7 @@ int main(int argc, char **argv)
     {
         cv::Mat position = SLAM.GetCurrentPosition();
         vector<KeyFrame*> KFGraph = SLAM.GetMap()->GetAllKeyFrames();
+        sort(KFGraph.begin(),KFGraph.end(),compareKFs);
         vector<MapPoint*> MapPoints = SLAM.GetMap()->GetAllMapPoints();
         current_frame_time = ros::Time::now();
         //POSE PUBLISH
@@ -378,7 +391,7 @@ int main(int argc, char **argv)
         //POSE NUMBER PUBLISH
         if(!KFGraph.empty())
         {
-            PublishPoseNumber(KFGraph, SLAM.GetTracking()->GetReferenceKF(), covisibility_publisher);
+            PublishPoseNumber(KFGraph, SLAM.GetTracking()->GetReferenceKF(), pose_number_publisher);
         }
 
         //Visualization publish
@@ -436,5 +449,3 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
 
     mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
 }
-
-//map -> std::vector<MapPoint*> GetAllMapPoints();
