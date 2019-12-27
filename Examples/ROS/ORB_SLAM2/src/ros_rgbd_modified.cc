@@ -22,6 +22,7 @@
 #include<algorithm>
 #include<fstream>
 #include<chrono>
+#include<string>
 
 #include<ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
@@ -90,21 +91,25 @@ tf::Transform TransformFromMat(cv::Mat position_mat)
   tf::Vector3 tf_camera_translation (translation.at<float> (0), translation.at<float> (1), translation.at<float> (2));
 
   //Coordinate transformation matrix from orb coordinate system to ros coordinate system
-  const tf::Matrix3x3 tf_orb_to_ros (0, 0, 1,
+  /*const tf::Matrix3x3 tf_orb_to_ros (0, 0, 1,
                                     -1, 0, 0,
-                                     0,-1, 0);
+                                     0,-1, 0);*/
+
+  const tf::Matrix3x3 tf_orb_to_ros (1, 0, 0,
+                                     0, 1, 0,
+                                     0, 0, 1);
 
   //Transform from orb coordinate system to ros coordinate system on camera coordinates
-  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
-  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
+//  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
+//  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
 
   //Inverse matrix
   tf_camera_rotation = tf_camera_rotation.transpose();
   tf_camera_translation = -(tf_camera_rotation*tf_camera_translation);
 
   //Transform from orb coordinate system to ros coordinate system on map coordinates
-  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
-  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
+//  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
+//  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
 
   return tf::Transform (tf_camera_rotation, tf_camera_translation);
 }
@@ -146,6 +151,24 @@ void PublishGraphAsPoseStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_grap
   pose_array_msg.header.frame_id = "map";
   kf_graph_publisher.publish(pose_array_msg);
   //cout<<KFGraph.size()<<" KeyFrames was sent!"<<endl;
+}
+
+void PublishGraphAsPosesStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_graph_publisher, ros::Time current_frame_time, std::string map_frame_id_param)
+{
+  geometry_msgs::PoseStamped pose_stamped_msg;
+  geometry_msgs::Pose pose_msg;
+  cv::Mat position;
+  tf::Transform grasp_tf;
+  for(unsigned int i = 0; i < KFGraph.size(); i++)
+  {
+      position = KFGraph[i]->GetPose();
+      grasp_tf = TransformFromMat(position);
+      tf::Stamped<tf::Pose> grasp_tf_pose(grasp_tf, current_frame_time, map_frame_id_param);
+      tf::poseStampedTFToMsg (grasp_tf_pose, pose_stamped_msg);
+      //pose_msg = pose_stamped_msg.pose;
+      pose_stamped_msg.header.frame_id = to_string(i);
+      kf_graph_publisher.publish(pose_stamped_msg);
+  }
 }
 
 sensor_msgs::PointCloud2 MapPointsToPointCloud (std::vector<ORB_SLAM2::MapPoint*> map_points, std::string map_frame_id_param, int min_observations_per_point)
@@ -200,7 +223,6 @@ void PublishMapPoints(std::vector<ORB_SLAM2::MapPoint*> map_points, ros::Publish
   map_points_publisher.publish(cloud);
 }
 
-//[todo]
 std_msgs::Int32MultiArray PublishCovisibility(vector<KeyFrame*> KFGraph, ros::Publisher covisibility_publisher)
 {
   std_msgs::Int32MultiArray covisibility_msg;
@@ -335,8 +357,16 @@ int main(int argc, char **argv)
     nh.param<std::string>(name_of_node + "/camera_frame_id", camera_frame_id_param, "camera_link");
 
     // Define all subscriers
-    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
+//    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
+//    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
+    //new camera - astra
+    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
     message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
+
+    //bagfile
+//    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
+//    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
+
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_pol;
 
     message_filters::Synchronizer<sync_pol> sync(sync_pol(10), rgb_sub,depth_sub);
@@ -348,16 +378,18 @@ int main(int argc, char **argv)
     ros::Publisher kf_graph_publisher;
     ros::Publisher covisibility_publisher;
     ros::Publisher visualization_publisher;
+    ros::Publisher kf_graph_publisher_pose_stamped;
 
     pose_publisher = nh.advertise<geometry_msgs::PoseStamped> (name_of_node + "/pose", 1);
     kf_graph_publisher = nh.advertise<geometry_msgs::PoseArray> (name_of_node + "/kf_graph", 1);
+    kf_graph_publisher_pose_stamped = nh.advertise<geometry_msgs::PoseStamped> (name_of_node + "/kf_graph_pose_stamped", 10000);
     map_points_publisher = nh.advertise<sensor_msgs::PointCloud2> (name_of_node + "/point_cloud", 1);
     covisibility_publisher = nh.advertise<std_msgs::Int32MultiArray> (name_of_node + "/covisibility", 1);
     pose_number_publisher = nh.advertise<std_msgs::Int32> (name_of_node + "/pose_number", 1);
     visualization_publisher = nh.advertise<visualization_msgs::Marker> (name_of_node + "/visualization", 1);
     ros::Time current_frame_time;
 
-    ros::Rate loop_rate(30);
+    ros::Rate loop_rate(45);
     std_msgs::Int32MultiArray covisibility_msg;
     while (ros::ok()) //main loop
     {
@@ -376,6 +408,12 @@ int main(int argc, char **argv)
         if(!KFGraph.empty())
         {
             PublishGraphAsPoseStamped(KFGraph,kf_graph_publisher,current_frame_time,map_frame_id_param);
+            //cout<<"hello from while :)"<<endl;
+        }
+        //GRAPH POSE STAMPED PUBLISH
+        if(!KFGraph.empty())
+        {
+            PublishGraphAsPosesStamped(KFGraph,kf_graph_publisher_pose_stamped,current_frame_time,map_frame_id_param);
             //cout<<"hello from while :)"<<endl;
         }
         //POINTCLOUD PUBLISH
