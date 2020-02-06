@@ -153,12 +153,13 @@ void PublishGraphAsPoseStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_grap
   //cout<<KFGraph.size()<<" KeyFrames was sent!"<<endl;
 }
 
-void PublishGraphAsPosesStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_graph_publisher, ros::Time current_frame_time, std::string map_frame_id_param)
+void PublishGraphAsPosesStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_graph_publisher,ros::Publisher kf_graph_indexes_publisher , ros::Time current_frame_time, std::string map_frame_id_param)
 {
   geometry_msgs::PoseStamped pose_stamped_msg;
   geometry_msgs::Pose pose_msg;
   cv::Mat position;
   tf::Transform grasp_tf;
+  std_msgs::Int32MultiArray indexes;
   for(unsigned int i = 0; i < KFGraph.size(); i++)
   {
       position = KFGraph[i]->GetPose();
@@ -166,9 +167,11 @@ void PublishGraphAsPosesStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_gra
       tf::Stamped<tf::Pose> grasp_tf_pose(grasp_tf, current_frame_time, map_frame_id_param);
       tf::poseStampedTFToMsg (grasp_tf_pose, pose_stamped_msg);
       //pose_msg = pose_stamped_msg.pose;
-      pose_stamped_msg.header.frame_id = to_string(i);
+      pose_stamped_msg.header.frame_id = to_string(KFGraph[i]->mnId);
       kf_graph_publisher.publish(pose_stamped_msg);
+      indexes.data.push_back(KFGraph[i]->mnId);
   }
+  kf_graph_indexes_publisher.publish(indexes);
 }
 
 sensor_msgs::PointCloud2 MapPointsToPointCloud (std::vector<ORB_SLAM2::MapPoint*> map_points, std::string map_frame_id_param, int min_observations_per_point)
@@ -376,6 +379,7 @@ int main(int argc, char **argv)
     ros::Publisher pose_publisher;
     ros::Publisher pose_number_publisher;
     ros::Publisher kf_graph_publisher;
+    ros::Publisher kf_graph_indexes_publisher;
     ros::Publisher covisibility_publisher;
     ros::Publisher visualization_publisher;
     ros::Publisher kf_graph_publisher_pose_stamped;
@@ -385,11 +389,12 @@ int main(int argc, char **argv)
     kf_graph_publisher_pose_stamped = nh.advertise<geometry_msgs::PoseStamped> (name_of_node + "/kf_graph_pose_stamped", 10000);
     map_points_publisher = nh.advertise<sensor_msgs::PointCloud2> (name_of_node + "/point_cloud", 1);
     covisibility_publisher = nh.advertise<std_msgs::Int32MultiArray> (name_of_node + "/covisibility", 1);
+    kf_graph_indexes_publisher = nh.advertise<std_msgs::Int32MultiArray> (name_of_node + "/kf_graph_indexes", 1);
     pose_number_publisher = nh.advertise<std_msgs::Int32> (name_of_node + "/pose_number", 1);
     visualization_publisher = nh.advertise<visualization_msgs::Marker> (name_of_node + "/visualization", 1);
     ros::Time current_frame_time;
 
-    ros::Rate loop_rate(45);
+    ros::Rate loop_rate(20);
     std_msgs::Int32MultiArray covisibility_msg;
     while (ros::ok()) //main loop
     {
@@ -413,7 +418,7 @@ int main(int argc, char **argv)
         //GRAPH POSE STAMPED PUBLISH
         if(!KFGraph.empty())
         {
-            PublishGraphAsPosesStamped(KFGraph,kf_graph_publisher_pose_stamped,current_frame_time,map_frame_id_param);
+            PublishGraphAsPosesStamped(KFGraph,kf_graph_publisher_pose_stamped,kf_graph_indexes_publisher,current_frame_time,map_frame_id_param);
             //cout<<"hello from while :)"<<endl;
         }
         //POINTCLOUD PUBLISH
