@@ -100,16 +100,16 @@ tf::Transform TransformFromMat(cv::Mat position_mat)
                                      0, 0, 1);
 
   //Transform from orb coordinate system to ros coordinate system on camera coordinates
-//  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
-//  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
+  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
+  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
 
   //Inverse matrix
   tf_camera_rotation = tf_camera_rotation.transpose();
   tf_camera_translation = -(tf_camera_rotation*tf_camera_translation);
 
   //Transform from orb coordinate system to ros coordinate system on map coordinates
-//  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
-//  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
+  tf_camera_rotation = tf_orb_to_ros*tf_camera_rotation;
+  tf_camera_translation = tf_orb_to_ros*tf_camera_translation;
 
   return tf::Transform (tf_camera_rotation, tf_camera_translation);
 }
@@ -166,7 +166,6 @@ void PublishGraphAsPosesStamped(vector<KeyFrame*> KFGraph, ros::Publisher kf_gra
       grasp_tf = TransformFromMat(position);
       tf::Stamped<tf::Pose> grasp_tf_pose(grasp_tf, current_frame_time, map_frame_id_param);
       tf::poseStampedTFToMsg (grasp_tf_pose, pose_stamped_msg);
-      //pose_msg = pose_stamped_msg.pose;
       pose_stamped_msg.header.frame_id = to_string(KFGraph[i]->mnId);
       kf_graph_publisher.publish(pose_stamped_msg);
       indexes.data.push_back(KFGraph[i]->mnId);
@@ -179,8 +178,6 @@ sensor_msgs::PointCloud2 MapPointsToPointCloud (std::vector<ORB_SLAM2::MapPoint*
   sensor_msgs::PointCloud2 cloud;
 
   const int num_channels = 3; // x y z
-
-  //cloud.header.stamp = current_frame_time_;
   cloud.header.frame_id = map_frame_id_param;
   cloud.height = 1;
   cloud.width = map_points.size();
@@ -233,12 +230,11 @@ std_msgs::Int32MultiArray PublishCovisibility(vector<KeyFrame*> KFGraph, ros::Pu
   {
      for(unsigned int j = i+1; j < KFGraph.size(); j++)
      {
-         covisibility_msg.data.push_back(i);
-         covisibility_msg.data.push_back(j);
+         covisibility_msg.data.push_back(KFGraph[i]->mnId);
+         covisibility_msg.data.push_back(KFGraph[j]->mnId);
          covisibility_msg.data.push_back(KFGraph[i]->GetWeight(KFGraph[j]));
      }
   }
-  cout<<"PublishCovisibility: VectorSize() = "<< covisibility_msg.data.size()<<endl;
   covisibility_publisher.publish(covisibility_msg);
   return covisibility_msg;
 }
@@ -251,18 +247,11 @@ void PublishPoseNumber(vector<KeyFrame*> KFGraph, KeyFrame* ReferenceKF, ros::Pu
   {
     if(matIsEqual(KFGraph[i]->GetPose(),ReferenceKF->GetPose()))
     {
-        number_msg.data = i;
+        number_msg.data = KFGraph[i]->mnId;
         break;
     }
   }
-  cout<<"PublishPoseNumber function debug:"<<endl;
-  for(unsigned int i = 0; i < KFGraph.size(); i++)
-  {
-    cout<<i<<" "<<KFGraph[i]->mnId <<" and pointer: "<<&KFGraph[i]<<endl;
-  }
-  cout<<endl;
-
-  cout<<"Current number: "<<number_msg.data<<" of total "<<KFGraph.size()<<endl;
+  cout<<"Current KF number: "<<number_msg.data<<" of total size "<<KFGraph.size()<<endl;
   pose_number_publisher.publish(number_msg);
 }
 
@@ -292,8 +281,6 @@ void PublishGraphVisualization(vector<KeyFrame*> KFGraph, std_msgs::Int32MultiAr
     marker.color.r = 0.0;
     marker.color.g = 1.0;
     marker.color.b = 0.0;
-    //only if using a MESH_RESOURCE marker type:
-    //marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae";
 
     geometry_msgs::PoseStamped pose_stamped_msg;
     cv::Mat position;
@@ -360,11 +347,11 @@ int main(int argc, char **argv)
     nh.param<std::string>(name_of_node + "/camera_frame_id", camera_frame_id_param, "camera_link");
 
     // Define all subscriers
-//    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
-//    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
-    //new camera - astra
-    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
+    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
     message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
+    //new camera - astra
+//    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
+//    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
 
     //bagfile
 //    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_color", 1);
@@ -394,7 +381,7 @@ int main(int argc, char **argv)
     visualization_publisher = nh.advertise<visualization_msgs::Marker> (name_of_node + "/visualization", 1);
     ros::Time current_frame_time;
 
-    ros::Rate loop_rate(20);
+    ros::Rate loop_rate(30);
     std_msgs::Int32MultiArray covisibility_msg;
     while (ros::ok()) //main loop
     {
@@ -413,13 +400,11 @@ int main(int argc, char **argv)
         if(!KFGraph.empty())
         {
             PublishGraphAsPoseStamped(KFGraph,kf_graph_publisher,current_frame_time,map_frame_id_param);
-            //cout<<"hello from while :)"<<endl;
         }
         //GRAPH POSE STAMPED PUBLISH
         if(!KFGraph.empty())
         {
             PublishGraphAsPosesStamped(KFGraph,kf_graph_publisher_pose_stamped,kf_graph_indexes_publisher,current_frame_time,map_frame_id_param);
-            //cout<<"hello from while :)"<<endl;
         }
         //POINTCLOUD PUBLISH
         if(!MapPoints.empty())
@@ -440,7 +425,7 @@ int main(int argc, char **argv)
         //Visualization publish
         if(!KFGraph.empty() and !covisibility_msg.data.empty())
         {
-            PublishGraphVisualization(KFGraph, covisibility_msg, visualization_publisher);
+            //PublishGraphVisualization(KFGraph, covisibility_msg, visualization_publisher);
         }
 
         //TF publishing
@@ -457,7 +442,7 @@ int main(int argc, char **argv)
     // Stop all threads
     SLAM.Shutdown();
 
-    // Save camera trajectory
+    // Save camera trajectory (consecutive kfs)
     SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
 
     ros::shutdown();
